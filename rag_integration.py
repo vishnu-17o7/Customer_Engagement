@@ -1,6 +1,7 @@
+#### filepath: /c:/Users/vishn/Desktop/Programs/Customer_Engagement/rag_integration.py
 import os
+import json
 import time
-import threading
 from dotenv import load_dotenv
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
@@ -15,8 +16,37 @@ SLACK_CHANNEL_ID = os.getenv("SLACK_CHANNEL_ID")
 # Initialize Slack client
 slack_client = WebClient(token=SLACK_BOT_TOKEN)
 
-# Dictionary to store pending responses for approval tracking
-pending_responses = {}
+# Path for shared pending responses file
+PENDING_RESPONSES_FILE = "pending_responses.json"
+
+# Import for backward compatibility
+from slack_approval import pending_responses
+
+# Function to load pending responses from file
+def load_pending_responses():
+    """Load pending responses from JSON file"""
+    try:
+        if os.path.exists(PENDING_RESPONSES_FILE):
+            with open(PENDING_RESPONSES_FILE, 'r') as f:
+                return json.load(f)
+        return {}
+    except Exception as e:
+        print(f"⚠️ Error loading pending responses: {e}")
+        return {}
+
+# Function to save pending responses to file
+def save_pending_responses(responses):
+    """Save pending responses to JSON file"""
+    try:
+        # Convert tuple values to lists for JSON serialization
+        serializable_responses = {}
+        for key, value in responses.items():
+            serializable_responses[key] = list(value)
+            
+        with open(PENDING_RESPONSES_FILE, 'w') as f:
+            json.dump(serializable_responses, f)
+    except Exception as e:
+        print(f"⚠️ Error saving pending responses: {e}")
 
 def generate_rag_response(context, user_input):
     """
@@ -51,68 +81,30 @@ def send_to_slack(context, generated_response, source, message_id, channel_id):
         )
 
         if response["ok"]:
-            thread_ts = response["ts"]  # Store thread timestamp for tracking approvals
+            thread_ts = response["ts"]
             print(f"✅ Sent approval request to Slack for {source} - {message_id}")
-
-            # Store the pending response for tracking in approval system
+            
+            # Load existing pending responses
+            file_pending_responses = load_pending_responses()
+            
+            # Store the pending response for Slack approval (both in memory and file)
             pending_responses[thread_ts] = (message_id, channel_id, source, generated_response)
-
+            file_pending_responses[thread_ts] = [message_id, channel_id, source, generated_response]
+            
+            # Save updated pending responses to file
+            save_pending_responses(file_pending_responses)
+            
+            print(f"💾 Saved pending response to file for thread {thread_ts}")
         else:
             print(f"⚠️ Failed to send to Slack: {response['error']}")
 
     except SlackApiError as e:
         print(f"⚠️ Slack API Error: {e.response['error']}")
 
-def check_slack_approvals():
-    """
-    Fetch recent messages from Slack and check for approvals.
-    """
-    print(f"🔍 Running Slack approval check... (Pending: {len(pending_responses)})")
-
-    if not pending_responses:
-        return  # Skip checking if there are no pending approvals
-
-    try:
-        response = slack_client.conversations_history(channel=SLACK_CHANNEL_ID, limit=10)
-
-        for message in response["messages"]:
-            text = message.get("text", "").strip().lower()
-            thread_ts = message.get("thread_ts") or message.get("ts")  # Use ts if no thread_ts
-            print(message)
-            if text in ["yes", "y"] and thread_ts in pending_responses:
-                message_id, channel_id, source, response_text = pending_responses.pop(thread_ts)
-
-                if source == "discord":
-                    print(f"✅ Approved response for Discord (Channel: {channel_id}, Message: {message_id}): {response_text}")
-                    # Call function to post to Discord (implement separately)
-
-                elif source == "reddit":
-                    print(f"✅ Approved response for Reddit (Post ID: {message_id}): {response_text}")
-                    # Call function to post to Reddit (implement separately)
-
-    except SlackApiError as e:
-        print(f"⚠️ Slack API Error: {e.response['error']}")
-
-def approval_loop():
-    """ Continuously checks Slack approvals every 10 seconds. """
-    while True:
-        check_slack_approvals()
-        time.sleep(10)
-
-# Start Slack approval loop in a separate thread
-threading.Thread(target=approval_loop, daemon=True).start()
-
-# Example usage
 if __name__ == "__main__":
-    # Test sending a response to Slack for approval
-    send_to_slack(
-        context="Example context here...",
-        generated_response="This is an AI-generated response.",
-        source="discord",
-        message_id="123456789",
-        channel_id="987654321"
-    )
-
-    # Keep script running (needed if running outside a bot framework)
-    while True:
-        time.sleep(1)
+    # Example usage
+    test_context = "Example context"
+    test_message_id = 12345
+    test_channel_id = 67890
+    rag_response = generate_rag_response(test_context, "Sample query?")
+    send_to_slack(test_context, rag_response, "testing", test_message_id, test_channel_id)

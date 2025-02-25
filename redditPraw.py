@@ -1,28 +1,36 @@
+import os
+from dotenv import load_dotenv
 import praw
 import mysql.connector
 
+load_dotenv()
+
 reddit = praw.Reddit(
-    client_id="kvBRHQxAcAoggL2pOYEI5w",
-    client_secret="-9M0aBpNkFK88ih1RA9s9oigJve1oA",
-    password="GVuK3H#YsHN6J:672882",
-    user_agent="testscript",
-    username="MonsterBottie007",
+    client_id=os.getenv("REDDIT_CLIENT_ID"),
+    client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
+    password=os.getenv("REDDIT_PASSWORD"),
+    user_agent=os.getenv("REDDIT_USER_AGENT"),
+    username=os.getenv("REDDIT_USERNAME"),
 )
 
 # MySQL Connection Setup
 db = mysql.connector.connect(
-    host="localhost",
-    user="root",
-    password="root",
-    database="reddit_db"
+    host=os.getenv("MYSQL_HOST", "localhost"),
+    user=os.getenv("MYSQL_USER", "root"),
+    password=os.getenv("MYSQL_PASSWORD", "root"),
+    database=os.getenv("MYSQL_DATABASE", "reddit_db")
 )
 cursor = db.cursor()
 
-# Ensure table exists
+# Adjust table schema to match usage in reddit_bot.py:
 cursor.execute("""
     CREATE TABLE IF NOT EXISTS posts (
-        id VARCHAR(20) PRIMARY KEY,
+        post_id VARCHAR(20) PRIMARY KEY,
         title TEXT,
+        category TEXT,
+        confidence FLOAT,
+        response TEXT,
+        subreddit TEXT,
         score INT,
         url TEXT
     )
@@ -37,7 +45,7 @@ for submission in subreddit.top(limit=10):
     top_posts.append((submission.id, submission.title, submission.score, submission.url))
 
 # Insert data into MySQL
-cursor.executemany("INSERT IGNORE INTO posts (id, title, score, url) VALUES (%s, %s, %s, %s)", top_posts)
+cursor.executemany("INSERT IGNORE INTO posts (post_id, title, score, url) VALUES (%s, %s, %s, %s)", top_posts)
 
 # Commit and close
 db.commit()

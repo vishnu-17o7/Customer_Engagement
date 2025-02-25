@@ -54,8 +54,6 @@ def process_reddit_posts():
 
                 # Store pending approval using Slack thread_ts
                 if thread_ts:
-                    pending_responses[thread_ts] = (post.id, "reddit", rag_response)
-
                     print(f"📌 Pending approval for Reddit post {post.id}: {rag_response}")
 
                     # Insert details into MySQL database
