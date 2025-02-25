@@ -9,6 +9,12 @@ import re
 import spacy
 from transformers import pipeline
 import torch
+from dotenv import load_dotenv
+import os
+
+# Load environment variables
+load_dotenv()
+DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 
 # Load spaCy NLP model
 nlp = spacy.load("en_core_web_sm")
@@ -37,7 +43,9 @@ def detect_intent(text):
 # Discord Bot Setup
 intents = discord.Intents.default()
 intents.messages = True  # Enable message reading
-intents.message_content = True  # Required for reading messages
+intents.message_content = True 
+intents.guilds = True
+ # Required for reading messages
 
 bot = discord.Client(intents=intents)
 
@@ -59,4 +67,4 @@ async def on_message(message):
         print(f"Relevant Message Found: \nUser: {message.author} \nMessage: {text} \nIntent: {intent} \n")
 
 # Run the bot
-bot.run("MTM0MzE3MDc4NjMxMTI3NDU4OA.GUBBir.yxwDhI2h2cQp5Lai_rAj8QBWP9tt7yk-1MFUu8")
+bot.run(DISCORD_BOT_TOKEN)
