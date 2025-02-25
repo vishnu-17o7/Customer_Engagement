@@ -10,7 +10,8 @@ from pathlib import Path
 
 # Import RAG system components
 from langchain.prompts import PromptTemplate
-from langchain.vectorstores import Qdrant
+from langchain_qdrant import QdrantVectorStore
+from qdrant_client import QdrantClient
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 from langchain_groq import ChatGroq
 from langchain.chains import RetrievalQA
@@ -85,13 +86,24 @@ def initialize_rag_system():
             print(f"❌ DEBUG: Failed to initialize embeddings: {embed_err}")
             return None
         
+        # Create Qdrant client
+        print("🔄 DEBUG: Creating Qdrant client")
+        try:
+            client = QdrantClient(path="./audio_db")
+            print("✅ DEBUG: Qdrant client created successfully")
+        except Exception as client_err:
+            print(f"❌ DEBUG: Failed to create Qdrant client: {client_err}")
+            return None
+        
         # Load the existing vector database
         print("🔄 DEBUG: Attempting to load Qdrant vector database")
         try:
-            qdrant = Qdrant(
-                path="./audio_db",
-                collection_name="audio_equipment_embeddings",
-                embeddings=embeddings,
+            collection_name = "audio_equipment_embeddings"
+            qdrant = QdrantVectorStore(
+                client=client,
+                collection_name=collection_name,
+                embedding=embeddings,
+                vector_name="dense_vector"
             )
             print("✅ DEBUG: Audio equipment vector database loaded successfully!")
             return qdrant
@@ -193,65 +205,7 @@ def extract_user_preferences(context, query):
     
     return preferences
 
-def create_recommendation_prompt():
-    """Create a prompt template for audio equipment recommendations"""
-    recommendation_prompt = """
-    You are a knowledgeable audio specialist at headphoneGeek, a premium audio equipment retailer specializing in high-quality headphones and IEMs.
-    
-    Use the following information to provide personalized audio equipment recommendations based on the user's query and preferences.
-    
-    Context: {context}
-    
-    User Preferences:
-    - Budget: {budget}
-    - Use Case: {use_case}
-    - Preferred Type: {preferred_type}
-    - Sound Signature Preference: {sound_signature}
-    
-    Query: {question}
-    
-    Provide detailed recommendations that match the user's preferences with a confident, expert tone. Focus on:
-    1. Specific model recommendations that fit their requirements
-    2. Key features and benefits of each recommended product
-    3. Comparisons between options to help them make an informed decision
-    4. Value proposition (what makes each option worth its price)
-    
-    Format your response in a clear, engaging way that showcases headphoneGeek's technical expertise and passion for quality audio.
-    Always start with an enthusiastic greeting that includes the headphoneGeek brand name.
-    End your response with a friendly offer to provide more specific recommendations if needed.
-    """
-    
-    return PromptTemplate(
-        template=recommendation_prompt,
-        input_variables=["context", "question", "budget", "use_case", "preferred_type", "sound_signature"]
-    )
-
-def create_information_prompt():
-    """Create a prompt template for general audio information"""
-    information_prompt = """
-    You are a knowledgeable audio specialist at headphoneGeek, a premium audio equipment retailer specializing in high-quality headphones and IEMs.
-    
-    Use the following reference information to answer the user's question about audio equipment:
-    
-    Reference Information: {context}
-    
-    Query: {question}
-    
-    Provide a helpful, educational response that showcases headphoneGeek's technical expertise and passion for quality audio. Your response should:
-    1. Be informative and technically accurate
-    2. Explain concepts clearly without being condescending
-    3. Include relevant facts and educational details
-    4. Showcase the depth of knowledge that makes headphoneGeek a trusted authority
-    
-    Format your response in a clear, engaging way with a confident, expert tone.
-    Always start with an enthusiastic greeting that includes the headphoneGeek brand name.
-    End your response with a friendly offer to provide more information or recommendations if needed.
-    """
-    
-    return PromptTemplate(
-        template=information_prompt,
-        input_variables=["context", "question"]
-    )
+# Removed template functions in favor of inline f-string formatting
 
 def generate_direct_llm_response(context, user_input, intent="general"):
     """
@@ -388,9 +342,33 @@ def generate_rag_response(context, user_input):
             preferences = extract_user_preferences(context, user_input)
             print(f"👤 DEBUG: Extracted preferences: {preferences}")
             
-            # Create recommendation prompt
-            print("🔄 DEBUG: Creating recommendation prompt template")
-            prompt = create_recommendation_prompt()
+            # Create recommendation prompt using f-string formatting
+            print("🔄 DEBUG: Creating recommendation prompt with f-string")
+            formatted_prompt = f"""
+            You are a knowledgeable audio specialist at headphoneGeek, a premium audio equipment retailer specializing in high-quality headphones and IEMs.
+            
+            Use the following information to provide personalized audio equipment recommendations based on the user's query and preferences.
+            
+            Context: {context}
+            
+            User Preferences:
+            - Budget: {preferences.get("budget")}
+            - Use Case: {preferences.get("use_case")}
+            - Preferred Type: {preferences.get("preferred_type")}
+            - Sound Signature Preference: {preferences.get("sound_signature")}
+            
+            Query: {user_input}
+            
+            Provide detailed recommendations that match the user's preferences with a confident, expert tone. Focus on:
+            1. Specific model recommendations that fit their requirements
+            2. Key features and benefits of each recommended product
+            3. Comparisons between options to help them make an informed decision
+            4. Value proposition (what makes each option worth its price)
+            
+            Format your response in a clear, engaging way that showcases headphoneGeek's technical expertise and passion for quality audio.
+            Always start with an enthusiastic greeting that includes the headphoneGeek brand name.
+            End your response with a friendly offer to provide more specific recommendations if needed.
+            """
             
             # Create RetrievalQA chain
             print("🔄 DEBUG: Creating RetrievalQA chain for recommendation")
@@ -407,22 +385,18 @@ def generate_rag_response(context, user_input):
                     chain_type="stuff",
                     retriever=retriever,
                     return_source_documents=False,
-                    chain_type_kwargs={"prompt": prompt, "verbose": True},
+                    chain_type_kwargs={"verbose": True},
                 )
                 print("✅ DEBUG: RetrievalQA chain created successfully")
             except Exception as chain_err:
                 print(f"❌ DEBUG: Error creating QA chain: {chain_err}")
                 return generate_direct_llm_response(context, user_input, intent)
             
-            # Execute the query with preferences
-            print("🔄 DEBUG: Executing recommendation query")
+            # Execute the query with formatted prompt
+            print("🔄 DEBUG: Executing recommendation query with formatted prompt")
             try:
                 response = qa.invoke({
-                    "question": user_input,
-                    "budget": preferences.get("budget"),
-                    "use_case": preferences.get("use_case"),
-                    "preferred_type": preferences.get("preferred_type"),
-                    "sound_signature": preferences.get("sound_signature"),
+                    "query": formatted_prompt,
                     "context": context
                 })
                 print("✅ DEBUG: Query executed successfully")
@@ -441,9 +415,27 @@ def generate_rag_response(context, user_input):
                 return generate_direct_llm_response(context, user_input, intent)
         else:
             print("🔄 DEBUG: Processing as information query")
-            # Create information prompt
-            print("🔄 DEBUG: Creating information prompt template")
-            prompt = create_information_prompt()
+            # Create information prompt using f-string
+            print("🔄 DEBUG: Creating information prompt with f-string")
+            formatted_prompt = f"""
+            You are a knowledgeable audio specialist at headphoneGeek, a premium audio equipment retailer specializing in high-quality headphones and IEMs.
+            
+            Use the following reference information to answer the user's question about audio equipment:
+            
+            Reference Information: {context}
+            
+            Query: {user_input}
+            
+            Provide a helpful, educational response that showcases headphoneGeek's technical expertise and passion for quality audio. Your response should:
+            1. Be informative and technically accurate
+            2. Explain concepts clearly without being condescending
+            3. Include relevant facts and educational details
+            4. Showcase the depth of knowledge that makes headphoneGeek a trusted authority
+            
+            Format your response in a clear, engaging way with a confident, expert tone.
+            Always start with an enthusiastic greeting that includes the headphoneGeek brand name.
+            End your response with a friendly offer to provide more information or recommendations if needed.
+            """
             
             # Create RetrievalQA chain
             print("🔄 DEBUG: Creating RetrievalQA chain for information")
@@ -460,18 +452,18 @@ def generate_rag_response(context, user_input):
                     chain_type="stuff",
                     retriever=retriever,
                     return_source_documents=False,
-                    chain_type_kwargs={"prompt": prompt, "verbose": True},
+                    chain_type_kwargs={"verbose": True},
                 )
                 print("✅ DEBUG: RetrievalQA chain created successfully")
             except Exception as chain_err:
                 print(f"❌ DEBUG: Error creating QA chain: {chain_err}")
                 return generate_direct_llm_response(context, user_input, intent)
             
-            # Execute the query
-            print("🔄 DEBUG: Executing information query")
+            # Execute the query with formatted prompt
+            print("🔄 DEBUG: Executing information query with formatted prompt")
             try:
                 response = qa.invoke({
-                    "question": user_input,
+                    "query": formatted_prompt,
                     "context": context
                 })
                 print("✅ DEBUG: Query executed successfully")

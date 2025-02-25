@@ -155,8 +155,10 @@ async def check_slack_approvals():
 async def approve_discord_reply(channel_id, message_id, response_text):
     """
     Approve and post the response to Discord.
+    Handles responses longer than Discord's 2000 character limit by splitting into multiple messages.
     """
     print(f"🔄 Attempting to approve Discord reply: Channel {channel_id}, Message {message_id}")
+    
     try:
         channel = await bot.fetch_channel(int(channel_id))
         if channel is None:
@@ -164,9 +166,42 @@ async def approve_discord_reply(channel_id, message_id, response_text):
             return
 
         message = await channel.fetch_message(int(message_id))
-        await message.reply(response_text)
-        print(f"✅ Approved response posted to Discord: {response_text}")
-
+        
+        # Check if response exceeds Discord's 2000 character limit
+        if len(response_text) <= 2000:
+            # Normal case - response fits in one message
+            await message.reply(response_text)
+            print(f"✅ Approved response posted to Discord (single message)")
+        else:
+            # Split response into multiple messages
+            print(f"📝 Response exceeds Discord's 2000 character limit, splitting into multiple messages")
+            
+            # Send first message as a direct reply to the original message
+            first_message = response_text[:1997] + "..."
+            reply = await message.reply(first_message)
+            print(f"✅ First part of response posted to Discord")
+            
+            # Send remaining parts as replies to our first reply
+            remaining_text = response_text[1997:]
+            while remaining_text:
+                # Split remaining text into 2000 character chunks (or less for the last piece)
+                if len(remaining_text) <= 2000:
+                    chunk = remaining_text
+                    remaining_text = ""
+                else:
+                    chunk = remaining_text[:1997] + "..."
+                    remaining_text = remaining_text[1997:]
+                
+                # Add continuation indicator for all but the last chunk
+                if remaining_text:
+                    formatted_chunk = chunk
+                else:
+                    formatted_chunk = chunk
+                
+                # Send as reply to the previous message
+                reply = await reply.reply(formatted_chunk)
+                print(f"✅ Additional part of response posted to Discord")
+    
     except discord.errors.NotFound:
         print(f"⚠️ Message {message_id} not found in Discord.")
     except discord.errors.Forbidden:
