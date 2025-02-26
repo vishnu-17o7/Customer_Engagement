@@ -489,8 +489,62 @@ def generate_rag_response(context, user_input):
 def send_to_slack(context, generated_response, source, message_id, channel_id):
     """
     Send the generated response and context to Slack for manual approval.
+    Returns the thread timestamp if successful, None otherwise.
     """
+    # Truncate long text to fit Slack's block limits
+    MAX_CONTEXT_LENGTH = 500  # Slack has block size limits
+    MAX_RESPONSE_LENGTH = 1500
+    
+    # Truncate context if needed
+    if len(context) > MAX_CONTEXT_LENGTH:
+        truncated_context = context[:MAX_CONTEXT_LENGTH] + "... (truncated)"
+    else:
+        truncated_context = context
+        
+    # Truncate response if needed
+    if len(generated_response) > MAX_RESPONSE_LENGTH:
+        truncated_response = generated_response[:MAX_RESPONSE_LENGTH] + "... (truncated)"
+    else:
+        truncated_response = generated_response
+    
     try:
+        # Try database integration first (if available)
+        try:
+            # Check if db_utils is available
+            import importlib.util
+            if importlib.util.find_spec("db_utils") is not None:
+                from db_utils import store_discord_message, store_reddit_post
+                
+                # Store in database based on source
+                if source == "discord" and message_id and channel_id:
+                    from db_utils import store_discord_message
+                    store_discord_message(
+                        str(message_id),
+                        str(channel_id),
+                        context,
+                        "audio_query",  # Default category
+                        0.9,            # Default confidence
+                        generated_response
+                    )
+                    print(f"✅ Stored Discord message {message_id} in database")
+                elif source == "reddit" and message_id:
+                    from db_utils import store_reddit_post
+                    store_reddit_post(
+                        message_id,
+                        context,
+                        "audio_query",  # Default category
+                        0.9,            # Default confidence  
+                        generated_response,
+                        "unknown_subreddit"  # Default subreddit
+                    )
+                    print(f"✅ Stored Reddit post {message_id} in database")
+        except ImportError:
+            # db_utils not available, continue without database storage
+            print("ℹ️ Database utilities not available, skipping database storage")
+        except Exception as db_err:
+            print(f"⚠️ Error storing in database: {db_err}")
+        
+        # Send to Slack
         response = slack_client.chat_postMessage(
             channel=SLACK_CHANNEL_ID,
             text="🔍 *New AI Response Pending Approval* 🔍",
@@ -499,13 +553,29 @@ def send_to_slack(context, generated_response, source, message_id, channel_id):
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": (
-                            f"📌 *Source:* {source}\n"
-                            f"📜 *Context:* {context}\n"
-                            f"💡 *Generated Response:* {generated_response}\n\n"
-                            f"Reply with `yes` or `y` in this thread to approve."
-                        ),
-                    },
+                        "text": f"📌 *Source:* {source}"
+                    }
+                },
+                {
+                    "type": "section", 
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"📜 *Context:* {truncated_context}"
+                    }
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"💡 *Generated Response:* {truncated_response}"
+                    }
+                },
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "Reply with `yes` or `y` in this thread to approve."
+                    }
                 }
             ],
         )
@@ -525,11 +595,14 @@ def send_to_slack(context, generated_response, source, message_id, channel_id):
             save_pending_responses(file_pending_responses)
             
             print(f"💾 Saved pending response to file for thread {thread_ts}")
+            return thread_ts
         else:
             print(f"⚠️ Failed to send to Slack: {response['error']}")
+            return None
 
     except SlackApiError as e:
         print(f"⚠️ Slack API Error: {e.response['error']}")
+        return None
 
 if __name__ == "__main__":
     # Example usage
