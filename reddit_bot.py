@@ -7,21 +7,15 @@ from db_utils import store_reddit_post
 from slack_approval import pending_responses
 import prawcore.exceptions
 
-# Load environment variables
 load_dotenv()
 
-# Print environment variables for debugging (redacted for security)
 reddit_client_id = os.getenv("REDDIT_CLIENT_ID")
 reddit_client_secret = os.getenv("REDDIT_CLIENT_SECRET")
 reddit_username = os.getenv("REDDIT_USERNAME")
 reddit_password = os.getenv("REDDIT_PASSWORD")
 reddit_user_agent = os.getenv("REDDIT_USER_AGENT") or os.getenv("USER_AGENT")
 
-print(f"Reddit API credentials: Client ID: {reddit_client_id[:4]}*** Username: {reddit_username}")
-
-# Reddit API setup with improved error handling
 try:
-    # Use same approach as redditPraw.py (no explicit authentication verification)
     reddit = praw.Reddit(
         client_id=os.getenv("REDDIT_CLIENT_ID"),
         client_secret=os.getenv("REDDIT_CLIENT_SECRET"),
